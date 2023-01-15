@@ -1,0 +1,259 @@
+---
+title: "Data Wrangling"
+author: "Andrew Fu, Aidan Orr, Adam Rogers"
+date: "Due 5/13/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mdsr)
+library(robotstxt)
+library(rvest)
+library(knitr)
+library(ggrepel)
+library(igraph)
+library(ggnetwork)
+library(lattice)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file includes all data wrangling for our NBA offensive strategy project. A similar process is repeated for the 2003, 2011, and 2022 seasons. Each code chunk requires about an hour of run time. CSVs are written so the data from this code can be referenced in another file for visualizations.
+
+```{r 2003-data}
+# Load NBA play-by-play data with every court action
+assist_network_2003 <- hoopR::load_nba_pbp(2003) %>%
+  select(text, game_id) %>%
+  # Exclude games that do not have player data
+  filter(game_id != 230203017) %>%
+  filter(game_id != 230209031) %>%
+  # Grab only play descriptions that are assists
+  filter(str_detect(text, "Assisted"))
+
+# Create vector of players that scored
+shooter <- str_extract(assist_network_2003$text, "(.*)(?=\\smade)")
+# Create vector of players that passed
+passer <- str_extract(assist_network_2003$text, "(?<=Assisted by\\s)(.*)(?=\\.)")
+# Combine into data frame with game_id named accordingly
+assists_data_2003 <- 
+  cbind(data.frame(shooter), data.frame(passer), 
+        assist_network_2003$game_id) %>%
+  rename(game_id = "assist_network_2003$game_id")
+
+# Create vector of every game_id
+game_id_vector_2003 <- as.vector(assists_data_2003$game_id)
+# Remove duplicates
+game_id_vector_dup_2003 <- game_id_vector_2003[!duplicated(game_id_vector_2003)]
+
+# Create initial player position frame from arbitrary game of another season
+# This will be filtered out later
+game_comb_2003 <- hoopR::espn_nba_player_box(400974437) %>%
+  select(athlete_display_name, athlete_position_abbreviation) %>%
+  # Create variable for shooter, passer, and game ID
+  mutate("shooter" = athlete_display_name,
+         "passer" = athlete_display_name,
+         game_id = as.integer(400974437))
+
+# Iterate over vector of every unique game_id
+for (i in game_id_vector_dup_2003) {
+  # Create similar table for every game_id
+  game_i <- hoopR::espn_nba_player_box(i) %>%
+    select(athlete_display_name, athlete_position_abbreviation) %>%
+    # Create variable for shooter, passer, and game ID
+    mutate("shooter" = athlete_display_name,
+           "passer" = athlete_display_name,
+           game_id = as.integer(i))
+  # Combine into single data frame
+  game_comb_2003 <- rbind(game_comb_2003, game_i)
+}
+
+# Filter arbitrary game
+game_comb_2003 <- game_comb_2003 %>%
+  filter(game_id != 400974437)
+
+# Join to match shooter position
+assist_pos_2003 <- assists_data_2003 %>%
+  left_join(game_comb_2003, by = c("shooter", "game_id")) %>%
+  select(shooter, athlete_position_abbreviation, passer.x, game_id)
+
+# Join to match passer position and tidy names
+assist_pos_2003 <- assist_pos_2003 %>%
+  left_join(game_comb_2003, by = c("passer.x" = "passer", "game_id")) %>%
+  rename(shooter = "shooter.x", 
+         shooter_pos = "athlete_position_abbreviation.x", 
+         passer = "passer.x", 
+         passer_pos = "athlete_position_abbreviation.y", 
+         game_id = "game_id") %>%
+  select(passer_pos, shooter_pos) %>%
+  # Create count for each interaction
+  group_by(passer_pos, shooter_pos) %>%
+  summarise(count = n()) 
+  
+assist_pos_2003 <- assist_pos_2003 %>%
+  # Exclude more general positions and NAs
+  filter(!shooter_pos %in% c('G', 'F', 'GF', 'NA'), 
+         !passer_pos %in% c('G', 'F', 'GF', 'NA')) %>%
+  drop_na()
+
+# Create csv with shooter and passer names, positions, and gameIDs
+write_csv(assist_pos_2003, "assist_pos_2003.csv")
+
+```
+
+``` {r 2011-data}
+# Load NBA play-by-play data with every court action
+assist_network_2011 <- hoopR::load_nba_pbp(2011) %>%
+  select(text, game_id) %>%
+  # Exclude games that do not have player data
+  filter(game_id != 301003017) %>%
+  filter(game_id != 310220032) %>% 
+  # Grab only play descriptions that are assists
+  filter(str_detect(text, "assist"))
+
+# Create vector of players that scored
+shooter <- str_extract(assist_network_2011$text, "(.*)(?=\\smakes)")
+# Create vector of players that passed
+passer <- str_extract(assist_network_2011$text, "(?<=\\().+?(?=\\sassists)")
+# Combine into data frame with game_id named accordingly
+assists_data_2011 <- 
+  cbind(data.frame(shooter), data.frame(passer), assist_network_2011$game_id) %>%
+  rename(game_id = "assist_network_2011$game_id")
+
+# Create vector of every game_id
+game_id_vector_2011 <- as.vector(assists_data_2011$game_id)
+# Remove duplicates
+game_id_vector_dup_2011 <- game_id_vector_2011[!duplicated(game_id_vector_2011)]
+
+# Create initial player position frame from arbitrary game of another season
+# This will be filtered out later
+game_comb_2011 <- hoopR::espn_nba_player_box(400974437) %>%
+  select(athlete_display_name, athlete_position_abbreviation) %>%
+  # Create variable for shooter, passer, and game ID
+  mutate("shooter" = athlete_display_name,
+         "passer" = athlete_display_name,
+         game_id = as.integer(400974437))
+
+# Iterate over vector of every unique game_id
+for (i in game_id_vector_dup_2011) {
+  # Create similar table for every game_id
+  game_i <- hoopR::espn_nba_player_box(i) %>%
+    select(athlete_display_name, athlete_position_abbreviation) %>%
+    # Create variable for shooter, passer, and game ID
+    mutate("shooter" = athlete_display_name,
+           "passer" = athlete_display_name,
+           game_id = as.integer(i))
+  # Combine into single data frame
+  game_comb_2011 <- rbind(game_comb_2011, game_i)
+}
+
+# Filter arbitrary game
+game_comb_2011 <- game_comb_2011 %>%
+  filter(game_id != 400974437)
+
+# Join to match shooter position
+assist_pos_2011 <- assists_data_2011 %>%
+  left_join(game_comb_2011, by = c("shooter", "game_id")) %>%
+  select(shooter, athlete_position_abbreviation, passer.x, game_id)
+
+# Join to match passer position and tidy
+assist_pos_2011 <- assist_pos_2011 %>%
+  left_join(game_comb_2011, by = c("passer.x" = "passer", "game_id")) %>%
+  rename(shooter = "shooter.x", 
+         shooter_pos = "athlete_position_abbreviation.x", 
+         passer = "passer.x", 
+         passer_pos = "athlete_position_abbreviation.y", 
+         game_id = "game_id") %>%
+  select(passer_pos, shooter_pos) %>%
+  # Create count for each interaction
+  group_by(passer_pos, shooter_pos) %>%
+  summarise(count = n()) 
+
+assist_pos_2011 <- assist_pos_2011 %>%
+  # Exclude more general positions and NAs
+  filter(!shooter_pos %in% c('G', 'F', 'NA'), 
+         !passer_pos %in% c('G', 'F', 'NA')) %>%
+  drop_na()
+
+# Create csv with shooter and passer names, positions, and gameIDs
+write_csv(assist_pos_2011, "assist_pos_2011.csv")
+
+```
+
+``` {r 2022-data}
+# Load NBA play-by-play data with every court action
+assist_network_2022 <- hoopR::load_nba_pbp(2022) %>%
+  # Exclude All-Star Game
+  filter(game_id != 401410564) %>%
+  select(text, game_id) %>%
+  # Grab only play descriptions that are assists
+  filter(str_detect(text, "assist"))
+
+# Create vector of players that scored
+shooter <- str_extract(assist_network_2022$text, "(.*)(?=\\smakes)")
+# Create vector of players that passed
+passer <- str_extract(assist_network_2022$text, "(?<=\\().+?(?=\\sassists)")
+# Combine into data frame with game_id named accordingly
+assists_data_2022 <- 
+  cbind(data.frame(shooter), data.frame(passer), 
+        assist_network_2022$game_id) %>%
+  rename(game_id = "assist_network_2022$game_id")
+
+# Create vector of every game_id
+game_id_vector_2022 <- as.vector(assists_data_2022$game_id)
+# Remove duplicates
+game_id_vector_dup_2022 <- game_id_vector_2022[!duplicated(game_id_vector_2022)]
+
+# Create initial player position frame from arbitrary game of another season
+# This will be filtered out later
+game_comb_2022 <- hoopR::espn_nba_player_box(400974437) %>%
+  select(athlete_display_name, athlete_position_abbreviation) %>%
+  # Create variable for shooter, passer, and game ID
+  mutate("shooter" = athlete_display_name,
+         "passer" = athlete_display_name,
+         game_id = as.integer(400974437))
+
+# Iterate over vector of every unique game_id
+for (i in game_id_vector_dup_2022) {
+  # Create similar table for every game_id
+  game_i <- hoopR::espn_nba_player_box(i) %>%
+    select(athlete_display_name, athlete_position_abbreviation) %>%
+    # Create variable for shooter, passer, and game ID
+    mutate("shooter" = athlete_display_name,
+           "passer" = athlete_display_name,
+           game_id = as.integer(i))
+  # Combine into single data frame
+  game_comb_2022 <- rbind(game_comb_2022, game_i)
+}
+
+# Filter arbitrary game
+game_comb_2022 <- game_comb_2022 %>%
+  filter(game_id != 400974437)
+
+# Join to match shooter position
+assist_pos_2022 <- assists_data_2022 %>%
+  left_join(game_comb_2022, by = c("shooter", "game_id")) %>%
+  select(shooter, athlete_position_abbreviation, passer.x, game_id)
+
+# Join to match passer position and tidy names
+assist_pos_2022 <- assist_pos_2022 %>%
+  left_join(game_comb_2022, by = c("passer.x" = "passer", "game_id")) %>%
+  rename(shooter = "shooter.x", 
+         shooter_pos = "athlete_position_abbreviation.x", 
+         passer = "passer.x", 
+         passer_pos = "athlete_position_abbreviation.y", 
+         game_id = "game_id") %>%
+  select(passer_pos, shooter_pos) %>%
+  # Create count for each interaction
+  group_by(passer_pos, shooter_pos) %>%
+  summarise(count = n()) 
+
+assist_pos_2022 <- assist_pos_2022 %>%
+  # Exclude more general positions and NAs
+  filter(!shooter_pos %in% c('G', 'F', 'NA'), 
+         !passer_pos %in% c('G', 'F', 'NA')) %>%
+  drop_na()
+
+# Create csv with shooter and passer names, positions, and gameIDs
+write_csv(assist_pos_2022, "assist_pos_2022.csv")
+```
